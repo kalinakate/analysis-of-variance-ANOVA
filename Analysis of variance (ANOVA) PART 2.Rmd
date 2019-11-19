@@ -1,0 +1,130 @@
+---
+title: "DiscrAnaliz"
+author: "Kate"
+date: '25 апреля 2018 г '
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library("MASS")
+library("klaR")
+```
+
+## Дискриминантный анализ.
+
+```{r}
+DataFac <- read.csv("D:/Учеба/8 семестр/Алексеева/baseMA.csv", header = TRUE, sep = ";",dec = ",")
+```
+
+
+
+```{r}
+DMFix <- data.frame(DataFac$therapy, DataFac$Duration.in.hosp, DataFac$Weight1, DataFac$G.age, DataFac$Duration.of.Reanimation)
+DMFix <- na.omit(DMFix)
+
+#Выводим первые 10 строчек
+DMFix[1:10,]
+```
+
+
+# Выполнение расчетов
+```{r}
+lda.all <- lda(DataFac.therapy ~ ., data = DMFix)
+lda.all
+```
+
+
+# Таблица неточностей "Факт/Прогноз" по обучающей выборке
+```{r}
+classified <- predict(lda.all)$class
+t1 <- table(DMFix$DataFac.therapy, classified)  
+t1
+```
+
+```{r}
+plot(predict(lda.all, data=DMFix)$x)
+points(predict(lda.all, data=DMFix)$x[DMFix$DataFac.therapy==1,], col = "red")
+points(predict(lda.all, data=DMFix)$x[DMFix$DataFac.therapy==2,], col = "blue")
+points(predict(lda.all, data=DMFix)$x[DMFix$DataFac.therapy==3,], col = "green")
+
+```
+
+# Точность классификации и расстояние Махалонобиса
+```{r}
+Err_S <- mean(DMFix$DataFac.therapy != classified)
+Err_S
+mahDist <- NA
+mahDist <- dist(lda.all$means %*% lda.all$scaling) 
+mahDist
+```
+
+Поскольку важной характеристикой прогнозирующей эффективности модели является ее ошибка при перекрестной проверке, то в функции lda() пакета MASS заложена реализация скользящего контроля (leave-one-out CV). Напомним, что при этом из исходной выборки поочередно отбрасывается по одному объекту, строится  n  моделей дискриминации по (n – 1) выборочным значениям, а исключенное наблюдение каждый раз используется для учета ошибки классификации.
+
+# Таблица "Факт/Прогноз" и ошибка при скользящем контроле
+```{r}
+t2 <-  table(DMFix$DataFac.therapy, update(lda.all, CV = T)$class -> LDA.cv)
+t2
+Err_CV <- mean(DMFix$DataFac.therapy != LDA.cv) 
+Err_CV
+```
+
+Ошибка классификации не изменилась при скользящем контроле!
+
+
+##какие из имеющихся 4 признаков являются важными при разделении, а какие - нет?
+
+```{r}
+stepclass(DataFac.therapy ~ ., data = DMFix, method = "lda")
+```
+
+Видим, что только длительность реанимации хорошо предсказывает
+
+```{r}
+lda.step <- lda(DataFac.therapy ~ DataFac.Duration.of.Reanimation, data = DMFix)
+lda.step
+```
+
+В результате получили дискриминантную функцию:
+
+$z(x)=0.02814734*Duration.of.Reanimation$
+
+
+##Найдем ошибку предсказания как на обучающей выборке, так и при скользящем контроле:
+
+# Таблица неточностей "Факт/Прогноз" по обучающей выборке
+```{r}
+classified <- predict(lda.step)$class
+t1 <- table(DMFix$DataFac.therapy, classified)  
+t1
+```
+
+
+# Точность классификации и расстояние Махалонобиса
+```{r}
+Err_S <- mean(DMFix$DataFac.therapy != classified)
+Err_S
+mahDist <- NA
+mahDist <- dist(lda.step$means %*% lda.step$scaling) 
+mahDist
+```
+
+Ошибка классификации уменьшилась!
+
+# Таблица "Факт/Прогноз" и ошибка при скользящем контроле
+```{r}
+t2 <-  table(DMFix$DataFac.therapy, update(lda.step, CV = T)$class -> LDA.cv)
+t2
+Err_CV <- mean(DMFix$DataFac.therapy != LDA.cv) 
+Err_CV
+```
+
+ну тут тоже чуть улучшилось тоже.
+
+
+
+
+
+
+
+
+

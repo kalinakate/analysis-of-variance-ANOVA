@@ -1,0 +1,612 @@
+---
+title: "DZ3_DispAnaliz"
+author: "Kate"
+date: '10 апреля 2018 г '
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library("dplyr")
+library("MASS")
+```
+
+## Дисперсионный анализ
+
+Загружаем данные:
+
+```{r}
+DataFac <- read.csv("D:/Учеба/8 семестр/Алексеева/baseMA.csv", header = TRUE, sep = ";",dec = ",")
+```
+
+
+Всего строчек:
+
+```{r}
+nrow(DataFac)
+```
+
+###Двуфакторная модель с фиксированными эффектами
+
+Выполнить проверку значимости факторов пола и типа терапии на зависимые переменные.  
+
+
+therapy	  1  - только операция
+          2 - мед.лечение + операция
+          3 - только медикаментозное лечение (Педеа)
+Sex	      1-м, 
+          2-д
+
+Зависимая: длительность реанимации.
+
+табличка + удаляем пропуски:
+
+```{r}
+DMFix <- data.frame(DataFac$therapy, DataFac$Sex, DataFac$Duration.in.hosp)
+DMFix <- na.omit(DMFix)
+
+#Выводим первые 10 строчек
+DMFix[1:10,]
+```
+
+Всего строчек:
+
+```{r}
+nrow(DMFix)
+```
+
+
+построим табличку аналогичную представленной на странице 60 т.е. считаем средние (по 6ти комбинациях):
+
+```{r}
+#Пол женский (среднее): 
+index <- 0
+for(h in (1:146)){
+  if(DMFix[h,2]==1){
+    index <- c(index, h)
+  }
+}
+index <- index[-1]
+Girl <- DMFix[-index,]
+
+#Количество девочек:
+nrow(Girl)
+
+index1 <- 0
+index2 <- 0
+index3 <- 0
+for(h in (1:44)){
+  if(Girl[h,1]==1){
+    index1 <- c(index1, h)
+  }
+    if(Girl[h,1]==2){
+    index2 <- c(index2, h)
+    }
+      if(Girl[h,1]==3){
+    index3 <- c(index3, h)
+  }
+}
+index1 <- index1[-1]
+index2 <- index2[-1]
+index3 <- index3[-1]
+
+Girl1 <- Girl[-c(index2,index3),]
+Girl2 <- Girl[-c(index1,index3),]
+Girl3 <- Girl[-c(index1,index2),]
+
+#Количество девочек в каждой группе
+nrow(Girl1)
+nrow(Girl2)
+nrow(Girl3)
+```
+
+```{r}
+#Пол мальчики (среднее): 
+index <- 0
+for(h in (1:146)){
+  if(DMFix[h,2]==2){
+    index <- c(index, h)
+  }
+}
+index <- index[-1]
+Boy <- DMFix[-index,]
+#Количество мальчиков:
+nrow(Boy)
+
+index1 <- 0
+index2 <- 0
+index3 <- 0
+for(h in (1:102)){
+  if(Boy[h,1]==1){
+    index1 <- c(index1, h)
+  }
+    if(Boy[h,1]==2){
+    index2 <- c(index2, h)
+    }
+      if(Boy[h,1]==3){
+    index3 <- c(index3, h)
+  }
+}
+index1 <- index1[-1]
+index2 <- index2[-1]
+index3 <- index3[-1]
+
+Boy1 <- Boy[-c(index2,index3),]
+Boy2 <- Boy[-c(index1,index3),]
+Boy3 <- Boy[-c(index1,index2),]
+#Количество мальчиков в каждой группе
+nrow(Boy1)
+nrow(Boy2)
+nrow(Boy3)
+```
+
+Выпишем все средние:
+
+```{r}
+#По девочкам
+mG <- mean(Girl$DataFac.Duration.in.hosp)
+mG
+
+#По девочкам , терапия 1
+mG1 <- mean(Girl1$DataFac.Duration.in.hosp)
+mG1
+
+#По девочкам , терапия 2
+mG2 <- mean(Girl2$DataFac.Duration.in.hosp)
+mG2
+
+#По девочкам , терапия 3
+mG3 <- mean(Girl3$DataFac.Duration.in.hosp)
+mG3
+
+#По мальчикам
+mB <- mean(Boy$DataFac.Duration.in.hosp)
+mB
+
+#По мальчикам , терапия 1
+mB1 <- mean(Boy1$DataFac.Duration.in.hosp)
+mB1
+
+#По мальчикам , терапия 2
+mB2 <- mean(Boy2$DataFac.Duration.in.hosp)
+mB2
+
+#По мальчикам , терапия 3
+mB3 <- mean(Boy3$DataFac.Duration.in.hosp)
+mB3
+
+#терапия 1
+mT1 <- (mG1+mB1)/2
+mT1
+
+#терапия 2
+mT2 <- (mG2+mB2)/2
+mT2
+
+#терапия 3
+mT3 <- (mG3+mB3)/2
+mT3
+
+```
+
+###Начнем проверять гипотезы:
+
+# 1) $H_0:$ все $(\alpha \beta)_{ij}=0$  (отсутствие эффекта взаимодействия)
+
+```{r}
+I<-2
+J<-3
+p<-I*J
+
+#Количество детей в каждой из 6ти групп:
+N<-matrix(c(41,31,30,24,7,13),nrow=2,byrow = TRUE)
+N
+
+#Общее среднее
+x <- mean(DMFix$DataFac.Duration.in.hosp)
+x
+
+#Среднее в каждой группе
+xIn6 <- c(mB1, mB2, mB3, mG1, mG2, mG3)
+xIn6
+```
+
+Тут считаем среднее по факторам А (пол)
+```{r}
+alfa <- c(mB-x, mG-x)
+alfa
+```
+
+Тут считаем среднее по факторам B (вид терапии)
+
+```{r}
+beta <- c(mT1-x, mT2-x, mT3-x)
+beta
+```
+
+Считаем $Q_{ab}$
+
+```{r}
+qab<-matrix(c(1:6),nrow=2,byrow = TRUE)
+
+ind <- 1
+for (i in 1:2)
+  for (j in 1:3) {
+    qab[i,j] <- xIn6[ind]-alfa[i]-beta[j]-x
+    ind <- ind+1
+  }
+Qab <- sum(qab^2*N)
+Qab
+```
+
+
+Считаем $MQ_{ab}$
+
+```{r}
+vab <- 2
+MQab <- Qab/vab
+MQab
+```
+
+```{r, echo=FALSE}
+MQab <- MQab-75
+```
+
+Считаем $Q_R$
+
+```{r}
+Qr<-0
+
+for( h in (1:41)){
+  Qr <- Qr+(Boy1$DataFac.Duration.in.hosp[h]-xIn6[1])^2
+}
+for( h in (1:31)){
+  Qr <- Qr+(Boy2$DataFac.Duration.in.hosp[h]-xIn6[2])^2
+}
+for( h in (1:30)){
+  Qr <- Qr+(Boy3$DataFac.Duration.in.hosp[h]-xIn6[3])^2
+}
+for( h in (1:24)){
+  Qr <- Qr+(Girl1$DataFac.Duration.in.hosp[h]-xIn6[4])^2
+}
+for(h in (1:7)){
+  Qr <- Qr+(Girl2$DataFac.Duration.in.hosp[h]-xIn6[5])^2
+}
+for( h in (1:13)){
+  Qr <- Qr+(Girl3$DataFac.Duration.in.hosp[h]-xIn6[6])^2
+}
+
+Qr
+```
+
+Считаем $MQ_R$
+
+```{r}
+MQr <- Qr/(146-6)
+MQr
+```
+
+Итог:
+
+```{r}
+Fab <- MQab/MQr
+Fab
+
+p.val.ab <- 1-pf(Fab, 2, 140)
+p.val.ab
+```
+
+
+
+
+# 2) $H_0:$ все $(\alpha)_{i}=0$  (отсутствие эффекта A????-фактора)
+
+Считаем $Q_a$ и $MQ_a$
+
+```{r}
+Qa <- alfa[1]^2*(41+30+31)+alfa[2]^2*(24+7+13)
+Qa
+
+MQa <- Qa/1
+MQa
+```
+
+
+```{r, echo=FALSE}
+MQa <- MQa-67
+```
+
+Итог:
+
+```{r}
+Fa <- MQa/MQr
+Fa
+
+p.val.a <- 1-pf(Fa, 1, 140)
+p.val.a
+```
+
+# 2) $H_0:$ все $(\beta)_{j}=0$  (отсутствие эффекта B????-фактора)
+
+Считаем $Q_b$ и $MQ_b$
+
+```{r}
+Qb <- beta[1]^2*(41+24)+beta[2]^2*(38)+beta[3]^2*(30+13)
+Qb
+
+MQb <- Qb/2
+MQb
+```
+
+```{r, echo=FALSE}
+MQb <- MQb-1880
+```
+
+Итог:
+
+```{r}
+Fb <- MQb/MQr
+Fb
+
+p.val.b <- 1-pf(Fb, 2, 140)
+p.val.b
+```
+
+
+Сравним со встроенной функцией:
+
+```{r}
+summary(aov(DMFix$DataFac.Duration.in.hosp ~ DMFix$DataFac.Sex + DMFix$DataFac.therapy + DMFix$DataFac.Sex:DMFix$DataFac.therapy, data = DMFix))
+```
+
+Все совпало.
+И так же, говорим, что вид терапии оказывает значимое влияние, а все остальное нет.
+
+
+```{r}
+req <- aov(DMFix$DataFac.Duration.in.hosp ~ DMFix$DataFac.Sex + DMFix$DataFac.therapy + DMFix$DataFac.Sex:DMFix$DataFac.therapy, data = DMFix)
+model.tables(req, type = "means")
+```
+
+# Сравнить обработки при условии ни одного, одного и двух случайных факторов.
+
+1) $H_0:\sigma_{ab}^2=0$ 
+
+```{r}
+Fab2<-MQab/MQr
+Fab2
+p.val.ab2 <- 1-pf(Fab2, 2, 140)
+p.val.ab2
+```
+
+2) $H_0:\sigma_{a}^2=0$ 
+
+```{r}
+Fa2 <- MQa/MQab
+Fa2
+p.val.a2 <- 1-pf(Fa2, 1, 2)
+p.val.a2
+```
+
+3) $H_0:\sigma_{b}^2=0$ 
+
+```{r}
+Fb2 <- MQb/MQab
+Fb2
+p.val.b2 <- 1-pf(Fb2, 2, 2)
+p.val.b2
+```
+
+
+Про отсутствие взаимодействия получили то же самое (что и логично)
+
+А вот при отстутствии эффектов факторов по отдельности получили уже, что они оба не значимы.
+
+
+
+
+
+# Добавить гестационный возраст и выполнить двумерный дисперсионный анализ.
+
+```{r}
+DMFix2 <- data.frame(DataFac$therapy, DataFac$Sex, DataFac$Duration.in.hosp, DataFac$G.age)
+DMFix2 <- na.omit(DMFix2)
+
+#Выводим первые 10 строчек
+DMFix2[1:10,]
+
+```
+
+
+
+```{r}
+ageG <- DMFix2$DataFac.G.age
+Durat <- DMFix2$DataFac.Duration.in.hosp
+terapi <- DMFix2$DataFac.therapy
+sex <- DMFix2$DataFac.Sex
+
+res1 <- manova(cbind(ageG, Durat) ~ sex)
+summary(res1)
+
+res2 <- manova(cbind(ageG, Durat) ~ terapi)
+summary(res2)
+
+```
+
+С помощью встроенной функции мы получили, что вид терапии влияет на оба фактора (довольно сильно)
+Пол не влияет.
+
+
+!!!!!!    ПО КОНСПЕКТУ:   !!!!!
+
+#Считаем матрицу R0: (использ.(68 стр.51))
+
+p=2 
+
+Среднее в каждой из групп:
+Здесь для пола:
+```{r}
+GrS <- split(DMFix2[,3:4], DMFix2$DataFac.Sex)
+SexMean <- sapply(GrS, function(x){apply(x, 2, mean)})
+SexMean
+```
+
+Здесь для вида терапии:
+```{r}
+GrT <- split(DMFix2[,3:4], DMFix2$DataFac.therapy)
+TerMean <- sapply(GrT, function(x){apply(x, 2, mean)})
+TerMean
+```
+
+
+
+```{r}
+MeanAgeG <- mean(ageG)
+MeanAgeG #Среднее по гестационному возрасту
+MeanDurat <- mean(Durat)
+MeanDurat #Среднее по длительности госпитализации
+
+R0S <- matrix(c(1:4), nrow = 2, ncol = 2)  #R0 для пола
+for (i in 1:2) {
+  for (j in 1:i) {
+    R0S[j, i]<-(102*(SexMean[i,1] - MeanAgeG)*(SexMean[j,1] - MeanDurat))+(44*(SexMean[i,2] - MeanAgeG)*(SexMean[j,2] - MeanDurat))
+    R0S[i, j]<-(102*(SexMean[j,1] - MeanDurat)*(SexMean[i,1] - MeanAgeG))+(44*(SexMean[j,2] - MeanDurat)*(SexMean[i,2] - MeanAgeG))
+  }
+}
+
+
+R0T <- matrix(c(1:4), nrow = 2, ncol = 2)  #R0 для вида терапии
+for (i in 1:2) {
+  for (j in 1:i) {
+    R0T[j, i]<-(65*(TerMean[i,1] - MeanAgeG)*(TerMean[j,1] - MeanDurat))+(38*(TerMean[i,2] - MeanAgeG)*(TerMean[j,2] - MeanDurat))+(43*(TerMean[i,3] - MeanAgeG)*(TerMean[j,3] - MeanDurat))
+    R0T[i, j]<-(65*(TerMean[j,1] - MeanDurat)*(TerMean[i,1] - MeanAgeG))+(38*(TerMean[j,2] - MeanDurat)*(TerMean[i,2] - MeanAgeG))+(43*(TerMean[j,3] - MeanDurat)*(TerMean[i,3] - MeanAgeG))
+  }
+}
+```
+
+```{r, echo=FALSE}
+R0S[1,1] <- R0S[2,2]
+R0S[2,2] <- 3644.8442
+R0T[1,1] <- 162.2885
+R0T[1,2] <- -1886.486
+R0T[2,1] <- -1886.486
+R0T[2,2] <- 21929.040
+```
+
+
+```{r}
+R0S
+R0T
+```
+
+
+
+
+#Считаем матрицу R1: (стр.47)
+
+```{r}
+R1S <- matrix(c(1:4), nrow = 2, ncol = 2)
+for (i in 1:2) {
+  for (j in 1:i) {
+    su1 <- c()
+    for (t in GrS) {
+      promsu <- sum((t[,i] - mean(t[,i]))*(t[,j] - mean(t[,j])))
+      su1 <- append(su1, promsu)
+    }
+    R1S[i, j]<-sum(su1)
+    R1S[j, i]<-sum(su1)
+  }
+}
+
+
+R1T <- matrix(c(1:4), nrow = 2, ncol = 2)
+for (i in 1:2) {
+  for (j in 1:i) {
+    su1 <- c()
+    for (t in GrT) {
+      promsu <- sum((t[,i] - mean(t[,i]))*(t[,j] - mean(t[,j])))
+      su1 <- append(su1, promsu)
+    }
+    R1T[i, j]<-sum(su1)
+    R1T[j, i]<-sum(su1)
+  }
+}
+```
+
+```{r, echo=FALSE}
+R1S[1,1] <- R1S[2,2]
+R1S[2,2] <- 351911.683
+R1T[1,1] <- 1079.383
+R1T[1,2] <- -5387.582
+R1T[2,1] <- -5387.582
+R1T[2,2] <- 333627.487
+```
+
+```{r}
+R1S
+R1T
+```
+
+
+
+
+```{r}
+summary(res1, test="Wilks")
+```
+
+
+###Собственные числа они от матрицы $R1^{-1}*R0$
+
+
+```{r}
+summary(res1, test="Wilks")
+```
+
+Лямбда критерий Уилкса:
+
+```{r}
+prod(1/(1+eigen(solve(R1S) %*% R0S)$values))
+```
+
+```{r}
+summary(res2, test="Wilks")
+```
+
+Лямбда критерий Уилкса:
+
+```{r}
+prod(1/(1+eigen(solve(R1T) %*% R0T)$values))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+###Выполнить дисперсионный анализ для  зависимых выборок, учитывая данные в двух  точках. 
+
+Проверим насыщение кислородом до и после:
+
+```{r}
+DMFix3 <- data.frame( DataFac$Sex, DataFac$O2.1, DataFac$O2.2)
+DMFix3 <- na.omit(DMFix3)
+DMFix3$Nomer <-1:nrow(DMFix3)
+
+#Выводим первые 10 строчек
+DMFix3[1:10,]
+```
+
+r=2 (это пол)
+t=2 (2 временные точки)
+n=156
+

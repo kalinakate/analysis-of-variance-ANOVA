@@ -1,0 +1,1393 @@
+---
+title: "Anova s propuskami"
+author: "Kate"
+date: '3 декабря 2018 г '
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library("magic")
+library("corpcor")
+```
+
+
+```{r}
+x <- c(-10,-9,-8,-7,-6,-5,-4,-3,-2,-1,0,1,2,3,4,5,6,7,8,9,10)
+y <- c(0,0,0,0,0,0,0,0,0,0,0,1,2,3,4,5,6,7,8,9,10)
+plot(x, y, type="l", ylab = "$\var$(v)")
+```
+
+
+```{r, echo=FALSE}
+
+# перекрестное вычисление
+#parameter: матрица данных (в столбцах: время, в строках - случаи)
+#result: список перекрестных средств A, вектор n, вектор m и вектор индивидуальных средств ind_means
+
+cross.means <- function(mx)
+{
+  A <- numeric(dim(mx)[1])
+  
+  temp <- matrix(nrow = dim(mx)[1], ncol = dim(mx)[2])
+  n <- numeric(dim(mx)[1])
+  m <- numeric(dim(mx)[2])
+  
+  ind_means <- rowMeans(mx, na.rm = TRUE)
+  
+  temp <- as.matrix(sapply(1:dim(mx)[2],
+                           function(tau) sapply(1:dim(mx)[1],
+                                                function(j) ifelse(is.na(mx[j,tau]) == FALSE,
+                                                                   mean(mx[,tau] - ind_means, na.rm = TRUE),NA))))
+  
+  A <- sapply(1:dim(temp)[1], function(j) mean(temp[j,], na.rm = TRUE))
+  
+  n <- sapply(1:dim(temp)[1], function(j) sum(is.na(mx)[j,] == FALSE))
+  
+  m <- sapply(1:dim(mx)[2], function(tau) sum(is.na(mx)[,tau] == FALSE))
+  
+  l <- list("A" = A, "n" = n, "m" = m, "ind_means" = ind_means)
+}
+
+
+
+
+
+# индивид H вычисляющий
+#parameter: матрица данных
+#result: список сдвигов H, матрица инцидентности J, крестообразные средства A, вектор n, вектор m, индивидуальные средства ind_means, матрица Q
+
+
+computating.H <- function(mx)
+{
+  l <- cross.means(mx)
+  Lambda <- diag(1 / l$n)
+  J <- !is.na(mx)
+  Lambda_T <- diag(1 / l$m)
+  J_t <- t(J)
+  P <- Lambda %*% J %*% Lambda_T %*% J_t
+  
+  P_inf <- P
+  for(i in 1:dim(P)[1])
+    P_inf[i, ] <- l$n / sum(l$m)
+  
+  Q <- pseudoinverse(diag(nrow = dim(P)[1]) - P + P_inf)
+  H <- Q %*% l$A
+  
+  list("H" = H, "J" = J, "A" = l$A, "n" = l$n, "m" = l$m,
+       "ind_means" = l$ind_means, "Q" = Q)
+}
+
+
+
+
+#matrix W вычисление
+#parameters: время t, матрица матрицы данных, список результатов вычисления функции H
+#result: матрица W
+
+
+W.computating <- function(t, mx, l)
+{
+  W1 <- diag(1 / l$n)
+  W2 <- diag(1 / l$n)
+  
+  for(j in 1:dim(W2)[1])
+    for(j1 in 1:dim(W2)[2])
+    {
+      if(l$J[j, t] == TRUE) W2[j, j1] <- 1 / l$n[j] / l$m[t]
+    }
+  W <- W1 - W2
+  W <- W[l$J[, t] == TRUE, l$J[, t] == TRUE]
+  W
+}
+
+
+
+
+
+#matrix R вычисление
+#parameters: матрица матрицы данных, список результатов вычисления_H функции l
+#result: матрица R
+
+
+R.computating <- function(mx, l)
+{
+  R1 <- diag(1 / l$n)
+  R2 <- matrix(data = 0, nrow = dim(mx)[1], ncol = dim(mx)[1])
+  
+  for(j in 1:dim(R2)[1])
+    for(j1 in 1:dim(R2)[2])
+    {
+      sum <- 0
+      for(t1 in 1:dim(mx)[2])
+      {
+        if(l$J[j, t1] == TRUE && l$J[j1, t1] == TRUE) sum <- sum + 1 / l$m[t1]
+      }
+      R2[j, j1] <- 1 / l$n[j] / l$n[j1] * sum
+    }
+  R <- R1 - R2
+  
+  R
+}
+
+
+
+
+
+#matrix R_t вычисляет
+#parameters: время t, матрица матрицы данных, список результатов вычисления функции H
+#result: матрица R_t
+
+
+R.t.computating <- function(t, mx, l)
+{
+  R <- R.computating(mx, l)
+  R_t <- R[l$J[, t], l$J[, t]]
+  R_t
+}
+
+
+
+
+
+# первое вычисление матрицы ковариаций (для временной части модели)
+#parameters: матрица матрицы данных
+#result: список векторных Y и ковариационной матрицы Lambda
+# mx <-matrices [[1]]
+
+
+covariates.matrix.each <- function(mx)
+{
+  Lambda <- matrix(0)
+  Y <- numeric(0)
+  l <- computating.H(mx)
+  matrix_ <- mx - l$ind_means + as.numeric(l$H)
+  
+  for(t in 1:dim(mx)[2])
+  {
+    W <- W.computating(t, mx, l)
+    
+    R <- R.t.computating(t, mx, l)
+    
+    Y_t <- matrix_[l$J[, t] == TRUE, t]
+    Y <- c(Y, Y_t)
+    
+    Q_ <- l$Q[l$J[, t] == TRUE, l$J[, t] == TRUE]
+    Lambda_t <- (diag(l$m[t]) - Q_ %*% W + Q_ %*% R %*% t(Q_) -
+                   t(W) %*% t(Q_) - 1 / sum(l$m))
+    
+    Lambda <- adiag(Lambda, Lambda_t)
+  }
+  
+  Lambda <- Lambda[-1, -1]
+  list("Y" = Y, "Lambda" = Lambda)
+}
+
+
+
+
+
+
+# одно второе ковариационное матричное вычисление (для части модели, которая не зависит от временного фактора)
+#parameters: матрица матрицы данных
+#result: матрица Omega
+
+
+Omega.each <- function(m1, m2, sigma_sq, sigma1_sq)
+{
+  Omega <- matrix(ncol = dim(m1)[1], nrow = dim(m1)[1])
+  Omega <- m1 + as.numeric(sigma_sq / sigma1_sq) * m2
+  
+  Omega
+}
+
+
+
+
+
+
+# одно вычисление элементов матрицы Omega
+#parameters: матрица матрицы данных
+#result: список матриц m1 и m2
+
+
+m1.m2.each <- function(mx)
+{
+  l <- computating.H(mx)
+  R <- R.computating(mx, l)
+  
+  m1 <- diag(dim(mx)[1])
+  m2 <- (l$Q %*% R %*% t(l$Q) + 1 / sum(l$m))
+  l <- list("m1" = m1, "m2" = m2)
+  
+  l
+}
+
+
+
+
+
+
+# строит список матриц необработанного фрейма данных, подмножая его по групповому коэффициенту
+#parameters: матрица матрицы данных, необработанный фрейм данных df
+#result: список матриц для всех групп
+
+
+matrices.list <- function(mx, df)
+{
+  fact <- as.factor(df$group)
+  I <- length(levels(fact))
+  if(I > 1)
+    l <- lapply(1:I, function(i) subset(mx, df$group == i, -1)) else list(mx[ , -1])
+}
+
+
+
+
+# создает список первых ковариационных матриц
+#parameters: список элементарных матриц
+#result: список векторов Y, вектор m и вектор n
+
+
+covariates.matrices.list <- function(matrices)
+{
+  I <- length(matrices)
+  l1 <- lapply(1:I, function(i) covariates.matrix.each(matrices[[i]])$Y)
+  l2 <- lapply(1:I, function(i) computating.H(matrices[[i]])$m)
+  l3 <- lapply(1:I, function(i) computating.H(matrices[[i]])$n)
+  l <- list("Y" = l1, "m" = l2, "n" = l3)
+}
+
+
+
+
+
+
+# создает всю матрицу Lambda (первая ковариационная матрица для всех групп)
+#parameters: список элементарных матриц
+#result: список векторных Y и ковариационной матрицы Lambda
+
+
+covariates.matrix <- function(matrices)
+{
+  I <- length(matrices)
+  c_m_e <- covariates.matrix.each(matrices[[1]])
+  Y <- c_m_e$Y
+  Lambda <- c_m_e$Lambda
+  
+  if(I > 1)
+  {
+    for(i in 2:I)
+    {
+      c_m_e <- covariates.matrix.each(matrices[[i]])
+      Y <- c(Y, c_m_e$Y)
+      Lambda <- adiag(Lambda, c_m_e$Lambda)
+    }
+  }
+  
+  l <- list("Y" = Y, "Lambda" = Lambda)
+}
+
+
+
+
+
+
+
+# создает целую матрицу Omega (вторая ковариационная матрица для всех групп)
+#parameters: список элементарных матриц
+#result: матрица Omega
+
+Omega.computating <- function(matrices, m1_m2, sigma_sq, sigma1_sq)
+{
+  I <- length(matrices)
+  l1 <- m1_m2$l1
+  l2 <- m1_m2$l2
+  Omega <- Omega.each(l1[[1]], l2[[1]], sigma_sq, sigma1_sq)
+  if(I > 1)
+  {
+    for(i in 2:I)
+    {
+      O_e <- Omega.each(l1[[i]], l2[[i]], sigma_sq, sigma1_sq)
+      Omega <- adiag(Omega, O_e)
+    }
+  }
+  
+  Omega
+}
+
+
+
+
+
+
+
+# создает список элементов малых матриц Omega
+#parameters: список элементарных матриц
+#result: список списка матриц m1 l1 и матриц m2 l2
+
+
+m1.m2.computating <- function(matrices)
+{
+  I <- length(matrices)
+  if(I > 1)
+  {
+    l1 <- lapply(1:I, function(i) m1.m2.each(matrices[[i]])$m1)
+    l2 <- lapply(1:I, function(i) m1.m2.each(matrices[[i]])$m2)
+  }
+  
+  l <- list("l1" = l1, "l2" = l2)
+}
+
+```
+
+
+
+
+```{r, echo=FALSE}
+#matrix plan computating
+#parameter: список векторов Y, вектор m и вектор n
+#result: матричный план
+
+matrix.plan <- function(L)
+{
+  I <- length(L$m)
+  T_ <- length(L$m[[1]])
+  Y_length <- sum(sapply(1:I, function(i) length(L$Y[[i]])))
+  plan <- matrix(data = 0, ncol = (T_ - 1) * I)
+  
+  q <- numeric(T_ - 1)
+  
+  s <- sum(sapply(1:I, function(i) L$m[[i]][T_]))
+  
+  for(t in 1:(T_ - 1))
+  {
+    q[t] <- - sum(sapply(1:I, function(i) L$m[[i]][t])) / s
+  }
+  
+  f <- function(i)
+  {
+    Y <- L$Y[[i]]
+    m <- L$m[[i]]
+    plan_i <- matrix(data = 0, nrow = length(Y), ncol = (T_ - 1) * I)
+    
+    q_i <- -m / m[length(m)]
+    q_i <- q_i[-T_]
+    
+    beg <- 0
+    end <- 0
+    
+    for(j in 1:(T_ - 1))
+    {
+      beg <- end + 1
+      end <- end + m[j]
+      ind <- 1 + (j - 1) * I
+      if(I > 1)
+      {
+        plan_i[beg:end, c(ind, ind + i)] <-  1
+      }
+      plan_i[beg:end, ind] <- 1
+    }
+    
+    for(k in 1:(T_ - 1))
+    {
+      if(I > 1) plan_i[(end + 1):length(Y), 1 + i + (k - 1) * I] <- q_i[k]
+      plan_i[(end + 1):length(Y), 1 + (k - 1) * I] <- q[k]
+    }
+    
+    plan_i
+  }
+  
+  if(I > 1)
+  {
+    for(i in 1:(I - 1))
+    {
+      plan <- rbind(plan, f(i))
+    }
+    
+    Y <- L$Y[[I]]
+    m <- L$m[[I]]
+    plan_I <- matrix(data = 0, nrow = length(Y), ncol = (T_ - 1) * I)
+    p <- matrix(0, nrow = I - 1, ncol = T_ - 1)
+    r <- matrix(0, nrow = I - 1, ncol = T_ - 1)
+    
+    for(i in 1:(I - 1))
+      for(t in 1:(T_ - 1))
+      {
+        p[i,t] <- -L$m[[i]][t] / m[t]
+        r[i,t] <- L$m[[i]][t] / m[T_]
+      }
+    
+    beg <- 0
+    end <- 0
+    
+    for(j in 1:(T_ - 1))
+    {
+      beg <- end + 1
+      end <- end + m[j]
+      ind <- 1 + (j - 1) * I
+      plan_I[beg:end,ind] <-  1
+      for(k in 1:(I - 1))
+      {
+        plan_I[beg:end, 2 + (j - 1) * I + (k - 1)] <-  p[k,j]
+      }
+    }
+    
+    for(k in 1:(T_ - 1))
+    {
+      plan_I[(end + 1):length(Y), 1 + (k - 1) * I] <- q[k]
+    }
+    
+    for(j in 1:(T_ - 1))
+      for(k in 1:(I - 1)) plan_I[(end + 1):length(Y), 2 + (j - 1) * I + (k - 1)] <- r[k,j]
+    
+    plan <- rbind(plan, plan_I)
+    
+  }
+  
+  else
+  {
+    plan <- rbind(plan, f(I))
+  }
+  
+  plan <- plan[-1,]
+  plan
+}
+```
+
+
+
+
+```{r, echo=FALSE}
+# оценка параметров сначала (для временной части модели)
+#parameter: кадр данных необработанных данных df
+#result: список L (список векторов Y, m, n), параметры teta, план плана матрицы, матрица covariates c_m и обратные ковариации martrix Lambda_r
+
+estimation.parameters <- function(df)
+{
+  mx <- as.matrix(df)
+  matrices <- matrices.list(mx, df)
+  c_m <- covariates.matrix(matrices)
+  Lambda <- c_m$Lambda
+  
+  dim(Lambda)
+  Lambda_reverse <- pseudoinverse(Lambda)
+  
+  #a <- qr(Lambda)
+  #Lambda_reverse <- qr.coef(a, diag(dim(Lambda)[2]))
+  
+  L <- covariates.matrices.list(matrices)
+  plan <- matrix.plan(L)
+  b <- t(plan) %*% Lambda_reverse %*% plan
+  c <- qr(b)
+  
+  b_reverse <- qr.coef(c, diag(dim(plan)[2]))
+  
+  teta <- b_reverse %*% t(plan) %*% Lambda_reverse %*% c_m$Y
+  
+  l <- list("L" = L, "teta" = teta, "plan" = plan, "c_m" = c_m,
+            "Lambda_r" = Lambda_reverse)
+}
+
+
+
+# оценка беты (для теста значимости)
+#parameter: кадр данных необработанных данных df
+#result: вектор бета
+
+
+estimation.parameters.beta <- function(df)
+{
+  mx <- as.matrix(df)
+  matrices <- matrices.list(mx, df)
+  c_m <- covariates.matrix(matrices)
+  Lambda <- c_m$Lambda
+  
+  Lambda_reverse <- pseudoinverse(Lambda)
+  
+  #a <- qr(Lambda)
+  #Lambda_reverse <- qr.coef(a, diag(dim(Lambda)[2]))
+  
+  L <- covariates.matrices.list(matrices)
+  T_ <- length(L$m[[1]])
+  I <- length(L$m)
+  plan <- matrix.plan(L)
+  H_beta <- H.beta.computing(plan, T_, I)
+  b <- t(H_beta) %*% Lambda_reverse %*% H_beta
+  c <- qr(b)
+  
+  b_reverse <- qr.coef(c, diag(dim(H_beta)[2]))
+  
+  beta <- b_reverse %*% t(H_beta) %*% Lambda_reverse %*% c_m$Y
+  
+  beta
+}
+
+
+
+
+
+
+
+# оценка гаммы (для теста значимости)
+#parameter: кадр данных необработанных данных df
+#result: параметры гамма
+
+
+estimation.parameters.gamma <- function(df)
+{
+  mx <- as.matrix(df)
+  matrices <- matrices.list(mx, df)
+  c_m <- covariates.matrix(matrices)
+  
+  Lambda <- c_m$Lambda
+  
+  Lambda_reverse <- pseudoinverse(Lambda)
+  
+  #a <- qr(Lambda)
+  #Lambda_reverse <- qr.coef(a, diag(dim(Lambda)[2]))
+  
+  L <- covariates.matrices.list(matrices)
+  T_ <- length(L$m[[1]])
+  I <- length(L$m)
+  plan <- matrix.plan(L)
+  H_gamma <- H.gamma.computing(plan, I, T_)
+  b <- t(H_gamma) %*% Lambda_reverse %*% H_gamma
+  c <- qr(b)
+  
+  b_reverse <- qr.coef(c, diag(dim(H_gamma)[2]))
+  
+  gamma <- b_reverse %*% t(H_gamma) %*% Lambda_reverse %*% c_m$Y
+  
+  gamma
+}
+
+```
+
+
+
+
+```{r, echo=FALSE}
+# бета-оценка
+#parameter: результат функции valu_parameters ep
+#result: vactor beta
+
+
+beta.computing <- function(ep)
+{
+  teta <- ep$teta
+  L <- ep$L
+  
+  T_ <- length(L$m[[1]])
+  I <- length(L$m)
+  
+  beta <- numeric(I)
+  beta <- sapply(1:(T_ - 1), function(t) beta[t] <- teta[1 + (t - 1) * I])
+  
+  q <- q.computing(L)
+  
+  beta <- c(beta, sum(q * beta[1:(T_ - 1)]))
+  beta
+}
+
+
+
+
+
+
+
+# вычислительный вектор summ q
+#parameter: список ковариационных матриц L
+#result: вектор q
+
+
+q.computing <- function(L)
+{
+  T_ <- length(L$m[[1]])
+  I <- length(L$m)
+  q <- numeric(T_ - 1)
+  
+  s <- sum(sapply(1:I, function(i) L$m[[i]][T_]))
+  
+  for(t in 1:(T_ - 1))
+  {
+    q[t] <- - sum(sapply(1:I, function(i) L$m[[i]][t])) / s
+  }
+  
+  q
+}
+
+
+
+
+
+
+
+# вычислительная матрица q
+#parameter: список ковариационных матриц L
+#result: матрица q
+
+
+q_.computing <- function(L)
+{
+  T_ <- length(L$m[[1]])
+  I <- length(L$m)
+  q <- matrix(nrow = I - 1, ncol = T_ - 1)
+  
+  s <- sapply(1:I, function(i) L$m[[i]][T_])
+  
+  for(i in 1:(I - 1))
+    for(t in 1:(T_ - 1))
+      q[i, t] <- - L$m[[i]][t] / s[i]
+  
+  q
+}
+
+
+
+# всеобщая оценка гаммы
+#parameter: результат оценки_параметров funcrion ep
+#result: матрица параметров гамма
+
+gamma.computing <- function(ep)
+{
+  teta <- ep$teta
+  L <- ep$L
+  
+  I <- length(L$m)
+  T_ <- length(L$m[[1]])
+  
+  gamma <- matrix(nrow = I, ncol = T_)
+  
+
+  for(t in 1:(T_ - 1))
+    gamma[1:(I - 1), t] <- teta[(2 + (t - 1) * I):(I * t)]
+  
+  p <- matrix(0, nrow = I - 1, ncol = T_ - 1)
+  r <- matrix(0, nrow = I - 1, ncol = T_ - 1)
+  
+  for(i in 1:(I - 1))
+    for(t in 1:(T_ - 1))
+    {
+      p[i,t] <- -L$m[[i]][t] / L$m[[I]][t]
+      r[i,t] <- L$m[[i]][t] / L$m[[I]][T_]
+    }
+  
+  gamma[I, 1:(T_ - 1)] <- sapply(1:(T_ - 1), function(t) sum(p[, t] *
+                                                               gamma[1:(I - 1), t]))
+  
+  q <- q_.computing(L)
+  
+  gamma[1:(I - 1), T_] <- sapply(1:(I - 1), function(i) q[i, ] %*%
+                                   gamma[i, 1:(T_ - 1)])
+  
+  gamma[I, T_] <- sum(sapply(1:(I - 1), function(i) sum(r[i,] *
+                                                          gamma[i, 1:(T_ - 1)])))
+  
+  gamma
+}
+
+
+
+
+#computating квадратичная форма для гаммы
+#parameters: кадр данных необработанных данных df, оценочный параметр beta
+#result: значение квадратичной формы
+
+
+Q.2e.gamma.computation <- function(df, beta)
+{
+  ep <- estimation.parameters(df)
+  Y <- ep$c_m$Y
+  I <- length(ep$L$m)
+  T_ <- length(ep$L$m[[1]])
+  H_beta <- H.beta.computing(ep$plan, T_, I)
+  Lambda_r <- ep$Lambda_r
+  
+  t(Y - H_beta %*% beta) %*% Lambda_r %*% (Y - H_beta %*% beta)
+}
+
+
+
+
+
+
+#matrix план для бета-расчета
+#parameters: план плана матрицы, количество точек времени T_,
+# количество групп I
+#result: матричный план
+
+
+
+H.beta.computing <- function(plan, T_, I)
+{
+  H_beta <- sapply(1:(T_ - 1), function(t) plan[, 1 + (t - 1) * I])
+}
+
+
+
+
+
+#computating квадратичная форма для бета-версии
+#parameters: кадр данных необработанных данных df, оценочный параметр gamma
+#result: значение квадратичной формы
+
+
+Q.2e.beta.computation <- function(df, gamma)
+{
+  ep <- estimation.parameters(df)
+  Y <- ep$c_m$Y
+  I <- length(ep$L$m)
+  T_ <- length(ep$L$m[[1]])
+  
+  H_gamma <- H.gamma.computing(ep$plan, I, T_)
+  
+  Lambda_r <- ep$Lambda_r
+  
+  t(Y - H_gamma %*% gamma) %*% Lambda_r %*% (Y - H_gamma %*% gamma)
+}
+
+
+
+
+#matrix для вычисления гаммы
+#parameters: план плана матрицы, количество групп I, количество точек времени T_
+#result: матричный план
+
+
+
+H.gamma.computing <- function(plan, I, T_)
+{
+  H_gamma <- 0
+  
+  for(t in 1:(T_ - 1))
+     H_gamma <- cbind(H_gamma, plan[, (2 + (t - 1) * I):(I * t)])
+  
+  H_gamma <- H_gamma[, -1]
+  
+  H_gamma
+}
+
+
+
+#вычисление квадратичной формы 
+#parameter: кадр данных необработанных данных df
+#result: значение квадратичной формы
+
+
+Q.2e.computation <- function(df)
+{
+  ep <- estimation.parameters(df)
+  Y <- ep$c_m$Y
+  H <- ep$plan
+  
+  Lambda_r <- ep$Lambda_r
+  
+  t(Y - H %*% ep$teta) %*% Lambda_r %*% (Y - H %*% ep$teta)
+}
+
+
+
+
+
+
+#statistics для гаммы
+#parameter: кадр данных необработанных данных df
+#result: список статистических значений stat, степеней свободы df1, df2
+
+F.gamma <- function(df)
+{
+  ep <- estimation.parameters(df)
+  m_ <- sum(sapply(1:length(ep$L$m), function(i) ep$L$m[[i]]))
+  I <- length(ep$L$m)
+  T_ <- length(ep$L$m[[1]])
+  Q_2e <- Q.2e.computation(df)
+  df2 <- (m_ - dim(df)[1] - I * (T_ - 1))
+  df1 <- (I * T_ - T_ - I + 1)
+  stat <- (Q.2e.gamma.computation(df, estimation.parameters.beta(df)) - Q_2e) *
+    df2 / Q_2e / df1
+  
+  l <- list("stat" = stat, "df1" = df1, "df2" = df2)
+}
+
+
+
+
+
+
+#статистика для бета-версии
+#parameter: кадр данных необработанных данных df
+#result: список статистических значений stat, степеней свободы df1, df2
+
+
+F.beta <- function(df)
+{
+  ep <- estimation.parameters(df)
+  
+  m_ <- sum(sapply(1:length(ep$L$m), function(i) ep$L$m[[i]]))
+  I <- length(ep$L$m)
+  T_ <- length(ep$L$m[[1]])
+  Q_2e <- Q.2e.computation(df)
+  df2 <- m_ - dim(df)[1] - I * (T_ - 1)
+  df1 <- T_ - 1
+  stat <- (Q.2e.beta.computation(df, estimation.parameters.gamma(df)) - Q_2e) *
+    df2 / Q_2e / df1
+  
+  l <- list("stat" = stat, "df1" = df1, "df2" = df2)
+}
+
+
+
+
+
+
+#vector Z вычисление
+#parameter: кадр данных необработанных данных df
+#result: вектор Z
+
+
+Z.computating  <- function(df)
+{
+  ep <- estimation.parameters(df)
+  I <- length(ep$L$m)
+  H <- computating.H(df)$H
+  
+  means <- lapply(1:I, function(i) rowMeans(subset(df, subset = df[, 1] == i, select = -1), na.rm = TRUE))
+  
+  shifts <- lapply(1:I, function(i) subset(H, subset = df[, 1] == i))
+  
+  Z <- 0
+  
+  for(i in 1:I)
+    Z <- c(Z, as.numeric(means[[i]] - shifts[[i]]))
+  
+  Z[-1]
+}
+
+
+
+
+# второй матричный план вычисления
+#parameters: кадр данных необработанных данных df, вектор Z, вектор m
+#result: матричный план
+
+
+matrix.plan.main.effect <- function(df, Z, m)
+{
+  dim1 <- length(Z)
+  dim2 <- length(m)
+  
+  matrix_plan <- matrix(nrow = dim1, ncol = dim2, data = 0)
+  matrix_plan[, 1] <- 1
+  
+  beg <- 1
+  end <- dim(subset(df, df$group == 1))[1]
+  for(i in 1:(dim2 - 1))
+  {
+    matrix_plan[beg:end, i + 1] <- 1
+    beg <- end + 1
+    end <- beg + dim(subset(df, df$group == i + 1))[1] - 1
+  }
+  
+  p <- numeric(dim2 - 1)
+  p <- sapply(1:(dim2 - 1), function(i) -sum(m[[i]]) /
+                sum(m[[length(m)]]))
+  
+  end <- dim1
+  for(i in 1:(dim2 - 1))
+    matrix_plan[beg:end, i + 1] <- p[i]
+  matrix_plan
+}
+
+
+
+
+#matrix план для альфа-расчета
+#parameters: кадр данных необработанных данных df, вектор Z, вектор m
+#result: матричный план
+
+
+matrix.plan.alpha <- function(df, Z, m)
+{
+  matrix.plan.main.effect(df, Z, m)[, 1]
+}
+
+
+
+
+#matrix план для вычисления mu
+#parameters: кадр данных необработанных данных df, вектор Z, вектор m
+#result: матричный план
+
+matrix.plan.mu <- function(df, Z, m)
+{
+  matrix.plan.main.effect(df, Z, m)[, -1]
+}
+```
+
+
+
+
+```{r, echo=FALSE}
+# оценка ошибки первой ошибки
+#parameters: кадр данных необработанных данных df
+#result: значение квадрата сигмы
+
+sigma.sq.estimation <- function(df)
+{
+  ep <- estimation.parameters(df)
+  m_ <- sum(sapply(1:length(ep$L$m), function(i) ep$L$m[[i]]))
+  I <- length(ep$L$m)
+  T_ <- length(ep$L$m[[1]])
+  Q_2e <- Q.2e.computation(df)
+  df1 <- (m_ - dim(df)[1] - I * (T_ - 1))
+  
+  Q_2e / df1
+}
+
+
+
+#recurrent оценка второй дисперсии ошибок
+#parameters: кадр данных необработанных данных df
+#result: sigma1 в квадрате
+
+
+sigma1.sq.estimation <- function(df)
+{
+  ep <- estimation.parameters(df)
+  I <- length(ep$L$m)
+  m <- ep$L$m
+  n <- dim(df)[1]
+  Z <- Z.computating(df)
+  H <- matrix.plan.main.effect(df, Z, m)
+  sigma_sq <- sigma.sq.estimation(df)
+  #sigma1_sq <- sigma_sq
+  sigma1_sq <- sigma1.first.calculating(df)
+  
+  mx <- as.matrix(df)
+  matrices <- matrices.list(mx, df)
+  l <- m1.m2.computating(matrices)
+  sigmas1_sq <- sigma1_sq
+  
+  for(i in 1:200)
+  {
+    Omega <- Omega.computating(matrices, l, sigma_sq, sigma1_sq)
+    R_ <- pseudoinverse(Omega)
+    teta <- param.estimating(H, R_, Z)
+    sigma1_sq <- estimating.step(Z, H, teta, R_, n, I)
+    sigmas1_sq <- c(sigmas1_sq, sigma1_sq)
+  }
+  
+  sigma1_sq
+}
+
+
+
+
+#computating статистика для альфа
+#parameters: кадр данных необработанных данных df
+#result: список значений статистики stat и степеней свободы df1, df2
+
+
+alpha.statistics <- function(df)
+{
+  ep <- estimation.parameters(df)
+  I <- length(ep$L$m)
+  m <- ep$L$m
+  m__ <- sum(sapply(1:length(m), function(i) m[[i]]))
+  n <- dim(df)[1]
+  Z <- Z.computating(df)
+  H <- matrix.plan.main.effect(df, Z, m)
+  H_ <- matrix.plan.alpha(df, Z, m)
+  
+  mx <- as.matrix(df)
+  matrices <- matrices.list(mx, df)
+  l <- m1.m2.computating(matrices)
+  sigma_sq <- sigma.sq.estimation(df)
+  sigma1_sq <- sigma1.sq.estimation(df)
+  Omega <- Omega.computating(matrices, l, sigma_sq, sigma1_sq)
+  R_ <- pseudoinverse(Omega)
+  
+  teta <- param.estimating(H, R_, Z)
+  mu <- param.estimating(H_, R_, Z)
+  
+  df1 <- I - 1
+  df2 <- n - I
+  
+  stat <- (t(Z - H_ %*% mu) %*% R_ %*% (Z - H_ %*% mu) - t(Z - H %*% teta) %*% R_ %*% (Z -
+                                                                                         H %*% teta)) * df2 / (t(Z - H %*% teta) %*% R_ %*% (Z - H %*% teta)) / df1
+  
+  list("stat" = stat, "df1" = df1, "df2" = df2)
+}
+
+
+
+
+
+
+#computating statistics для общего среднего
+#parameters: кадр данных необработанных данных df
+#result: список значений статистики stat и степеней свободы df1, df2
+main.statistics <- function(df)
+{
+  ep <- estimation.parameters(df)
+  I <- length(ep$L$m)
+  m <- ep$L$m
+  m__ <- sum(sapply(1:length(m), function(i) m[[i]]))
+  n <- dim(df)[1]
+  Z <- Z.computating(df)
+  H <- matrix.plan.main.effect(df, Z, m)
+  H_ <- matrix.plan.alpha(df, Z, m)
+  H__ <- matrix.plan.mu(df, Z, m)
+  mx <- as.matrix(df)
+  matrices <- matrices.list(mx, df)
+  l <- m1.m2.computating(matrices)
+  sigma_sq <- sigma.sq.estimation(df)
+  sigma1_sq <- sigma1.sq.estimation(df)
+  Omega <- Omega.computating(matrices, l, sigma_sq, sigma1_sq)
+  R_ <- pseudoinverse(Omega)
+  
+  teta <- param.estimating(H, R_, Z)
+  alpha <- param.estimating(H__, R_, Z)
+  
+  df1 <- 1
+  df2 <- n - I
+  
+  stat <- (t(Z - H__ %*% alpha) %*% R_ %*% (Z - H__ %*% alpha) - t(Z - H %*% teta) %*% R_ %*%
+             (Z - H %*% teta)) * df2 / (t(Z - H %*% teta) %*% R_ %*% (Z - H %*% teta)) / df1
+  
+  list("stat" = stat, "df1" = df1, "df2" = df2)
+}
+
+
+
+
+# вторая оценка параметров модели
+#parameters: матричный план H, ковариационная матрица R_, вектор Z
+#result: оценочные параметры
+
+
+param.estimating <- function(H, R_, Z)
+{
+  param <- pseudoinverse(t(H) %*% R_ %*% H) %*% t(H) %*% R_ %*% Z
+  
+  param
+}
+
+
+
+
+#estimation step
+#parameters: вектор Z, матричный план H, вектор параметров teta, ковариационная матрица R_, число случаев n, число групп I
+#result: sigma1 в квадрате
+
+
+estimating.step <- function(Z, H, teta, R_, n, I)
+{
+  sigma1_sq <- t(Z - H %*% teta) %*% R_ %*% (Z - H %*% teta) / (n - I)
+  sigma1_sq
+}
+
+
+
+#quadratic для второй модели
+#parameter: кадр данных необработанных данных df
+#result: значение квадратичной формы
+
+
+Q.1e_.calculating <- function(df)
+{
+  ep <- estimation.parameters(df)
+  I <- length(ep$L$m)
+  m <- ep$L$m
+  n <- ep$L$n
+  n_ <- dim(df)[1]
+  Z <- Z.computating(df)
+  
+  mx <- as.matrix(df[, -1])
+  sum <- 0
+  x___ <- mean(mx, na.rm = TRUE)
+  
+  count <- 1
+  for(i in 1:I)
+    for(j in 1:length(n[[i]]))
+    {
+      sum <- n[[i]][j] * (Z[count] - x___)^2
+      count <- count + 1
+    }
+  sum
+}
+
+
+
+
+# первое значение второй дисперсии для процедуры повторной оценки
+#parameter: кадр данных необработанных данных df
+#result: первое значение sigma1 в квадрате
+
+
+sigma1.first.calculating <- function(df)
+{
+  ep <- estimation.parameters(df)
+  I <- length(ep$L$m)
+  m <- ep$L$m
+  n <- ep$L$n
+  n_ <- dim(df)[1]
+  Z <- Z.computating(df)
+  H <- matrix.plan.main.effect(df, Z, m)
+  Omega <- diag(dim(H)[1])
+  R_ <- pseudoinverse(Omega)
+  teta <- param.estimating(H, R_, Z)
+  
+  m__ <- sum(sapply(1:length(m), function(i) m[[i]]))
+  df_ <- m__ - n_ - I
+  Q_2e <- t(Z - H %*% teta) %*% Omega %*% (Z - H %*% teta)
+  
+  Q_2e / df_
+}
+
+
+
+# оценка вторых параметров модели
+#parameter: кадр данных необработанных данных df
+#result: параметры teta
+
+
+estimation.parameters.main <- function(df)
+{
+  ep <- estimation.parameters(df)
+  I <- length(ep$L$m)
+  m <- ep$L$m
+  m__ <- sum(sapply(1:length(m), function(i) m[[i]]))
+  n <- dim(df)[1]
+  Z <- Z.computating(df)
+  H <- matrix.plan.main.effect(df, Z, m)
+  mx <- as.matrix(df)
+  matrices <- matrices.list(mx, df)
+  l <- m1.m2.computating(matrices)
+  sigma_sq <- sigma.sq.estimation(df)
+  sigma1_sq <- sigma1.sq.estimation(df)
+  Omega <- Omega.computating(matrices, l, sigma_sq, sigma1_sq)
+  R_ <- pseudoinverse(Omega)
+  
+  teta <- param.estimating(H, R_, Z)
+  
+  teta
+}
+
+
+
+
+# утверждение альфы
+#parameter: кадр данных необработанных данных df
+#result: параметры alpha
+
+
+estimation.alpha <- function(df)
+{
+  teta <- estimation.parameters.main(df)
+  alpha <- teta[-1]
+  
+  ep <- estimation.parameters(df)
+  I <- length(ep$L$m)
+  m <- ep$L$m
+  m_ <- sapply(1:I, function(i) sum(m[[i]]))
+  
+  alpha <- c(alpha, -sum(sapply(1:(I - 1), function(i) m_[[i]] * alpha[i])) / m_[[I]])
+  alpha
+}
+
+
+
+
+# оценка общего среднего
+#parameter: кадр данных необработанных данных df
+#result: общее среднее
+
+
+estimation.mu <- function(df)
+{
+  teta <- estimation.parameters.main(df)
+  alpha <- teta[1]
+}
+
+
+
+# compputating p-value для статистики (распределенный Fisher)
+#parameter: список статистических данных (значение и степень свободы) stat
+#result: p-value
+
+
+p.value.computating <- function(stat)
+{
+  1 - pf(q = stat$stat, df1 = stat$df1, df2 = stat$df2)
+}
+
+
+
+```
+
+
+
+
+
+
+
+```{r, echo=FALSE}
+
+#data чтение
+#parameter: имя файла file_name
+#result: кадр данных данных
+
+read.data <- function(file_name)  
+{
+  return(DataFac)
+}
+```
+
+
+
+
+
+
+
+```{r}
+AU<-function(df, echo=FALSE)
+{
+  #оценивание параметров
+      ep <- estimation.parameters(df)
+  
+  #эффект времени
+  beta <- beta.computing(ep)
+  #статистика критерия со степенями свободы
+  F_b <- F.beta(df)
+  #p-value
+  p_value_b <- p.value.computating(F_b)
+  
+  #эффект взаимодействия группы и времени
+  gamma <- gamma.computing(ep)
+  #статистика критерия со степенями свободы
+  F_g <- F.gamma(df)
+  #p-value
+  p_value_g <- p.value.computating(F_g)
+  
+  #эффект группы
+  alpha <- estimation.alpha(df)
+  #статистика критерия со степенями свободы
+  F_alpha <- alpha.statistics(df)
+  #p-value
+  p_value_alpha <- p.value.computating(F_alpha)
+  
+  #генеральное среднее
+  mu <- estimation.mu(df)
+  #статистика критерия со степенями свободы
+  F_mu <- main.statistics(df)
+  #p-value
+  p_value_mu <- p.value.computating(F_mu)
+  list(mu=mu,alpha=alpha,beta=beta,gamma=gamma,
+       p_values=round(c(
+         p_value_mu=p_value_mu,
+         p_value_alpha=p_value_alpha,
+         p_value_b=p_value_b,
+         p_value_g=p_value_g),digits=5))
+}
+
+```
+
+
+# Тестовые данные:
+
+
+```{r}
+DataFac2 <- read.csv("D:/Учеба/1 КУРС МАГИСТРАТУРА/Алексеева/DATA/rubdru_all.csv", header = TRUE, sep = ",")
+head(DataFac2)
+```
+
+```{r}
+# Запускаем программу
+AU(DataFac2)
+```
+
+
+
+
+# Данные: оценка депрессии в разные моменты времени. Группирующая переменная: возраст
+
+
+```{r}
+DataFac1 <- read.csv("D:/Учеба/1 КУРС МАГИСТРАТУРА/Алексеева/DATA/NF11.csv", header = TRUE, sep = ";")
+```
+
+###Группировка данных будет по возрасту. Min возраст = 17, MAX = 39. Разобъем на 4 группы:
+1я группа: 17-22
+2я группа: 23-28
+3я группа: 29-34
+4я группа: 35-39
+
+```{r}
+#Здесь мы выбираем нужные данные и удаляем строки в которых пропущенные значения в первый момент времени
+
+DataFac <- DataFac1[,c('group', 'BDI.1','BDI.2', 'BDI.3')]
+index <- c()
+TLF <- is.na(DataFac$BDI.1)  #тут удаляем пропущенные в первый просмотр
+for(i in (1:length(TLF))){
+  if (TLF[i] == 'TRUE'){
+    index <- c(index, i)
+  }
+}
+DataFac <- DataFac[-index,]
+DataFac <- DataFac[-(75:nrow(DataFac)),]
+
+
+#разобъем возраст на группы:
+for(i in (1:nrow(DataFac))){
+  if (DataFac$group[i] < 23){
+    DataFac$group[i] <- 1
+  }
+  if (DataFac$group[i] >= 23 & DataFac$group[i] < 29){
+    DataFac$group[i] <- 2
+  }
+  if (DataFac$group[i] >= 29 & DataFac$group[i] < 35){
+    DataFac$group[i] <- 3
+  }
+  if (DataFac$group[i] >= 35){
+    DataFac$group[i] <- 4
+  }
+}
+
+DataFac[is.na(DataFac)] <- -888
+head(DataFac) #смотрим на начало данных
+```
+
+```{r}
+#Посмотрим сводку по нашим данным
+DataFac$group <- as.integer(DataFac$group)
+DataFac$BDI.2 <- as.integer(DataFac$BDI.2)
+DataFac$BDI.3 <- as.integer(DataFac$BDI.3)
+summary(DataFac)
+
+str(DataFac)
+```
+
+
+```{r}
+# Запускаем программу
+AU(DataFac)
+```
+
+У нас здесь $\mu$ --- гееральное среднее
+
+$\alpha_i$ --- эффект фактора группы
+
+$\beta$ ---  эффект фактора времени
+
+$\gamma$  ---  эффект взаимодействия группы и времени
+
+По этим данным заключаем, что эффект взаимодействия группы и времени не значим!
+
+
+
+
+
+
+
+
